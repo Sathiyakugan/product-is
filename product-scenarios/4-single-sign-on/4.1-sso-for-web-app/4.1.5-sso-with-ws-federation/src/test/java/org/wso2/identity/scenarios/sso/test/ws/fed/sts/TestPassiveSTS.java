@@ -22,8 +22,9 @@ import org.apache.http.Header;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
+import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.client.HttpClientBuilder;
 import org.apache.http.util.EntityUtils;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
@@ -119,7 +120,7 @@ public class TestPassiveSTS extends ScenarioTestBase {
         appMgtclient = new ApplicationManagementServiceClient(sessionCookie, backendServiceURL, configContext);
         remoteUSMServiceClient = new RemoteUserStoreManagerServiceClient(backendServiceURL, sessionCookie);
 
-        client = createHttpClient();
+        client = HttpClientBuilder.create().setDefaultCookieStore(new BasicCookieStore()).build();
         this.passiveStsURL = backendURL + PASSIVESTS_URI_CONTEXT;
         passiveStsSampleAppURL = String.format(PASSIVE_STS_SAMPLE_APP_URL, webAppHost);
         commonAuthUrl = backendURL + COMMONAUTH_URI_CONTEXT;
@@ -206,7 +207,6 @@ public class TestPassiveSTS extends ScenarioTestBase {
             dependsOnMethods = {"testAddClaimConfiguration"})
     public void testInvokePassiveSTSSampleApp() throws IOException, URISyntaxException {
 
-        CloseableHttpClient client = HttpClients.createDefault();
         HttpResponse response;
         response = sendGetRequest(client, passiveStsSampleAppURL, null);
 
@@ -243,8 +243,15 @@ public class TestPassiveSTS extends ScenarioTestBase {
         EntityUtils.consume(response.getEntity());
         response = sendGetRequest(client, locationHeader.getValue(), null);
         resultPage = extractFullContentFromResponse(response);
-        assertTrue(resultPage.contains("You are now redirected to " + passiveStsSampleAppURL), "Passive STS " +
-                "Login failed for: " + this.config);
+
+        // Following error log is added to analyze an intermittent error caught with Passive STS Login fail assertion.
+        boolean successfullyRedirected = resultPage.contains("You are now redirected to " + passiveStsSampleAppURL);
+        if (!successfullyRedirected) {
+            log.error(String.format("Could not find the successfully redirected message from the result page. " +
+                    "Here are some helpful information to analyze the root cause. responseStatus: %s, " +
+                    "resultPage: %s", response.getStatusLine(), resultPage));
+        }
+        assertTrue(successfullyRedirected, "Passive STS Login failed for: " + this.config);
         assertTrue(resultPage.contains("RequestSecurityTokenResponseCollection"), "Passive STS " +
                 "Login response doesn't have wresult for: " + this.config);
         assertTrue(resultPage.contains("urn:oasis:names:tc:SAML:1.0:assertion"), "Passive STS " +

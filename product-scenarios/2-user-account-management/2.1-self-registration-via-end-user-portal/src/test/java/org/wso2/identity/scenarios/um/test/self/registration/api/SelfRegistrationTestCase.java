@@ -16,6 +16,7 @@
 
 package org.wso2.identity.scenarios.um.test.self.registration.api;
 
+import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpResponse;
@@ -44,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.testng.Assert.assertEquals;
@@ -96,6 +98,7 @@ public class SelfRegistrationTestCase extends ScenarioTestBase {
     private String newConfirmationCode;
 
     private boolean resendCode;
+    private static final long MAX_THREAD_WAIT_TIME = 5000;
 
     @Factory(dataProvider = "selfRegistrationConfigProvider")
     public SelfRegistrationTestCase(JSONObject registerRequestJSON, String username, String password,
@@ -210,6 +213,8 @@ public class SelfRegistrationTestCase extends ScenarioTestBase {
                 .sendPostRequestWithJSON(getEndPoint(ME), registerRequestJSON, getCommonHeaders(username, password));
 
         confirmationCode = httpCommonClient.getStringFromResponse(response);
+        log.info("Self registration result. Request Object: " + registerRequestJSON.toJSONString()
+                + " Response body (confirmation code): " + confirmationCode);
         assertEquals(response.getStatusLine().getStatusCode(), HttpStatus.SC_CREATED,
                 "Self registration failed. Request Object: " + registerRequestJSON.toJSONString() + " Response body: "
                         + confirmationCode);
@@ -257,6 +262,8 @@ public class SelfRegistrationTestCase extends ScenarioTestBase {
                         + registerRequestJSON.toJSONString());
 
         newConfirmationCode = httpCommonClient.getStringFromResponse(response);
+        log.info("Self registration resend code result. Request Object: " + registerRequestJSON.toJSONString()
+                + " Response body (confirmation code): " + newConfirmationCode);
         assertNotNull(newConfirmationCode, "Failed to receive the new confirmation code.");
     }
 
@@ -284,22 +291,34 @@ public class SelfRegistrationTestCase extends ScenarioTestBase {
 
         JSONObject confirmRequestJSON = new JSONObject();
         if (resendCode) {
+            log.info("Resend code scenario. Confirmation code: " + newConfirmationCode);
             confirmRequestJSON.put(CODE, newConfirmationCode);
         } else {
+            log.info("Confirmation code: " + confirmationCode);
             confirmRequestJSON.put(CODE, confirmationCode);
         }
         HttpResponse response = httpCommonClient.sendPostRequestWithJSON(getEndPoint(VALIDATE_CODE), confirmRequestJSON,
                 getCommonHeaders(username, password));
-
         assertEquals(response.getStatusLine().getStatusCode(), HttpStatus.SC_ACCEPTED,
                 "User confirmation failed. Confirmation code: " + confirmationCode + " Request Object: "
                         + registerRequestJSON.toJSONString());
-
+        Thread.sleep(MAX_THREAD_WAIT_TIME);
         ClaimValue[] claimValues = userStoreManagerServiceClient
                 .getUserClaimValuesForClaims(((JSONObject) registerRequestJSON.get(USER)).get(USERNAME).toString(),
                         new String[] { ACCOUNT_LOCK_CLAIM }, "default");
+        if (ArrayUtils.isNotEmpty(claimValues)) {
+            for (ClaimValue claimValue : claimValues) {
+                log.info("For Claim URI : " + claimValue.getClaimURI() + 
+                        " following value is set : " + claimValue.getValue());
+            }
+        } else {
+            log.info("Claim values array is empty.");
+        }
         assertNotNull(claimValues, "Failed to get the value for Claim URI: " + ACCOUNT_LOCK_CLAIM);
 
+        if (ArrayUtils.isNotEmpty(claimValues)) {
+            log.info("Claim: " + claimValues[0].getClaimURI() + " value: " + claimValues[0].getValue());
+        }
         assertEquals(claimValues[0].getValue(), "false",
                 "Failed to unlock the user account upon confirmation. Confirmation code: " + confirmationCode
                         + " Request Object: " + registerRequestJSON.toJSONString());
